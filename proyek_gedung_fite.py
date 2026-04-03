@@ -1,11 +1,19 @@
 import streamlit as st
 import numpy as np
 import pandas as pd
-import plotly.graph_objects as go
-import plotly.express as px
 import warnings
+from functools import lru_cache
 
 warnings.filterwarnings("ignore")
+
+
+@lru_cache(maxsize=1)
+def get_plotly_modules():
+    # Lazy import agar halaman awal muncul lebih cepat di server gratis.
+    import plotly.graph_objects as go
+    import plotly.express as px
+
+    return go, px
 
 # ============================================================================
 # 1. KONFIGURASI APLIKASI STREAMLIT
@@ -287,10 +295,22 @@ class MonteCarloProjectSimulation:
         return pd.DataFrame(contributions).T
 
 
+@st.cache_data(show_spinner=False)
+def run_simulation_cached(stages_config, num_simulations, random_seed=42):
+    # Cache hasil untuk kombinasi parameter yang sama agar tidak hitung ulang.
+    np.random.seed(random_seed)
+    simulator = MonteCarloProjectSimulation(
+        stages_config=stages_config,
+        num_simulations=num_simulations,
+    )
+    return simulator.run_simulation()
+
+
 # ============================================================================
 # 3. FUNGSI VISUALISASI PLOTLY
 # ============================================================================
 def create_distribution_plot(results):
+    go, _ = get_plotly_modules()
     total_duration = results["Total_Duration"]
     mean_duration = total_duration.mean()
     median_duration = np.median(total_duration)
@@ -361,6 +381,7 @@ def create_distribution_plot(results):
 
 
 def create_completion_probability_plot(results):
+    go, _ = get_plotly_modules()
     deadlines = np.arange(14, 26.1, 0.1)
     completion_probs = []
 
@@ -461,6 +482,7 @@ def create_completion_probability_plot(results):
 
 
 def create_critical_path_plot(critical_analysis):
+    go, _ = get_plotly_modules()
     critical_analysis = critical_analysis.sort_values("probability", ascending=True)
 
     colors = ["red" if prob > 0.7 else "lightcoral" for prob in critical_analysis["probability"]]
@@ -491,6 +513,7 @@ def create_critical_path_plot(critical_analysis):
 
 
 def create_stage_boxplot(results, stages):
+    go, px = get_plotly_modules()
     stage_names = list(stages.keys())
 
     fig = go.Figure()
@@ -520,6 +543,7 @@ def create_stage_boxplot(results, stages):
 
 
 def create_risk_contribution_plot(risk_contrib):
+    go, px = get_plotly_modules()
     risk_contrib = risk_contrib.sort_values("contribution_percent", ascending=False)
 
     fig = go.Figure()
@@ -543,6 +567,7 @@ def create_risk_contribution_plot(risk_contrib):
 
 
 def create_correlation_heatmap(results, stages):
+    go, _ = get_plotly_modules()
     correlation_matrix = results[list(stages.keys())].corr()
 
     fig = go.Figure(
@@ -606,7 +631,7 @@ def main():
         "🔁 Jumlah Iterasi Simulasi",
         min_value=1000,
         max_value=50000,
-        value=20000,
+        value=10000,
         step=1000,
     )
 
@@ -739,13 +764,17 @@ def main():
         st.session_state.simulator = None
 
     if run_simulation:
-        np.random.seed(42)
         with st.spinner("⏳ Menjalankan simulasi Monte Carlo..."):
+            results = run_simulation_cached(
+                stages_config=default_config,
+                num_simulations=num_simulations,
+                random_seed=42,
+            )
             simulator = MonteCarloProjectSimulation(
                 stages_config=default_config,
                 num_simulations=num_simulations,
             )
-            results = simulator.run_simulation()
+            simulator.simulation_results = results
             st.session_state.simulation_results = results
             st.session_state.simulator = simulator
             st.success(f"✅ Simulasi selesai: {num_simulations:,} iterasi.")
