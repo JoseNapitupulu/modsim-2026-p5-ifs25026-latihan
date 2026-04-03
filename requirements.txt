@@ -1,4 +1,9 @@
-streamlit==1.32.0
-numpy==1.26.4
-pandas==2.2.2
-plotly==5.22.0
+pandas==2.3.3
+streamlit==1.52.2
+matplotlib==3.9.4
+seaborn==0.13.2
+statsmodels==0.14.6
+plotly==6.5.0
+openpyxl
+fastapi
+uvicorn
