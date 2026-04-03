@@ -10,8 +10,11 @@ warnings.filterwarnings("ignore")
 @lru_cache(maxsize=1)
 def get_plotly_modules():
     # Lazy import agar halaman awal muncul lebih cepat di server gratis.
-    import plotly.graph_objects as go
-    import plotly.express as px
+    try:
+        import plotly.graph_objects as go
+        import plotly.express as px
+    except ModuleNotFoundError:
+        return None, None
 
     return go, px
 
@@ -315,6 +318,17 @@ def create_distribution_plot(results):
     mean_duration = total_duration.mean()
     median_duration = np.median(total_duration)
 
+    if go is None:
+        return None, {
+            "mean": mean_duration,
+            "median": median_duration,
+            "std": total_duration.std(),
+            "min": total_duration.min(),
+            "max": total_duration.max(),
+            "ci_80": ci_80,
+            "ci_95": ci_95,
+        }
+
     fig = go.Figure()
 
     fig.add_trace(
@@ -388,6 +402,9 @@ def create_completion_probability_plot(results):
     for deadline in deadlines:
         prob = np.mean(results["Total_Duration"] <= deadline)
         completion_probs.append(prob)
+
+    if go is None:
+        return None
 
     fig = go.Figure()
 
@@ -485,6 +502,9 @@ def create_critical_path_plot(critical_analysis):
     go, _ = get_plotly_modules()
     critical_analysis = critical_analysis.sort_values("probability", ascending=True)
 
+    if go is None:
+        return None
+
     colors = ["red" if prob > 0.7 else "lightcoral" for prob in critical_analysis["probability"]]
 
     fig = go.Figure()
@@ -516,6 +536,9 @@ def create_stage_boxplot(results, stages):
     go, px = get_plotly_modules()
     stage_names = list(stages.keys())
 
+    if go is None or px is None:
+        return None
+
     fig = go.Figure()
 
     for i, stage in enumerate(stage_names):
@@ -546,6 +569,9 @@ def create_risk_contribution_plot(risk_contrib):
     go, px = get_plotly_modules()
     risk_contrib = risk_contrib.sort_values("contribution_percent", ascending=False)
 
+    if go is None or px is None:
+        return None
+
     fig = go.Figure()
     fig.add_trace(
         go.Bar(
@@ -569,6 +595,9 @@ def create_risk_contribution_plot(risk_contrib):
 def create_correlation_heatmap(results, stages):
     go, _ = get_plotly_modules()
     correlation_matrix = results[list(stages.keys())].corr()
+
+    if go is None:
+        return None
 
     fig = go.Figure(
         data=go.Heatmap(
@@ -884,7 +913,13 @@ def main():
 
     with tab1:
         fig_dist, stats = create_distribution_plot(results)
-        st.plotly_chart(fig_dist, use_container_width=True)
+        if fig_dist is not None:
+            st.plotly_chart(fig_dist, use_container_width=True)
+        else:
+            hist_values = np.histogram(results["Total_Duration"], bins=25)
+            hist_df = pd.DataFrame({"bin": hist_values[1][1:], "count": hist_values[0]})
+            st.bar_chart(hist_df.set_index("bin"), use_container_width=True)
+            st.info("Visualisasi interaktif dinonaktifkan karena Plotly tidak tersedia di server ini.")
 
         with st.expander("📋 Detail Statistik Distribusi"):
             c1, c2 = st.columns(2)
@@ -902,7 +937,13 @@ def main():
 
     with tab2:
         fig_prob = create_completion_probability_plot(results)
-        st.plotly_chart(fig_prob, use_container_width=True)
+        if fig_prob is not None:
+            st.plotly_chart(fig_prob, use_container_width=True)
+        else:
+            deadlines = np.arange(14, 26.1, 0.1)
+            completion_probs = [np.mean(total_duration <= deadline) for deadline in deadlines]
+            prob_df = pd.DataFrame({"deadline": deadlines, "probability": completion_probs}).set_index("deadline")
+            st.line_chart(prob_df, use_container_width=True)
 
         with st.expander("📅 Analisis Probabilitas Deadline"):
             deadlines = [16, 18, 20, 22, 24]
@@ -946,11 +987,20 @@ def main():
         with col_a:
             critical_analysis = simulator.calculate_critical_path_probability()
             fig_critical = create_critical_path_plot(critical_analysis)
-            st.plotly_chart(fig_critical, use_container_width=True)
+            if fig_critical is not None:
+                st.plotly_chart(fig_critical, use_container_width=True)
+            else:
+                st.bar_chart(
+                    critical_analysis[["probability"]].sort_values("probability"),
+                    use_container_width=True,
+                )
 
         with col_b:
             fig_boxplot = create_stage_boxplot(results, simulator.stages)
-            st.plotly_chart(fig_boxplot, use_container_width=True)
+            if fig_boxplot is not None:
+                st.plotly_chart(fig_boxplot, use_container_width=True)
+            else:
+                st.dataframe(results[list(simulator.stages.keys())].describe().T, use_container_width=True)
 
         with st.expander("🧭 Detail Analisis Critical Path"):
             critical_df = critical_analysis.sort_values("probability", ascending=False)
@@ -962,11 +1012,17 @@ def main():
         with col_a:
             risk_contrib = simulator.analyze_risk_contribution()
             fig_risk = create_risk_contribution_plot(risk_contrib)
-            st.plotly_chart(fig_risk, use_container_width=True)
+            if fig_risk is not None:
+                st.plotly_chart(fig_risk, use_container_width=True)
+            else:
+                st.bar_chart(risk_contrib[["contribution_percent"]].sort_values("contribution_percent"), use_container_width=True)
 
         with col_b:
             fig_corr = create_correlation_heatmap(results, simulator.stages)
-            st.plotly_chart(fig_corr, use_container_width=True)
+            if fig_corr is not None:
+                st.plotly_chart(fig_corr, use_container_width=True)
+            else:
+                st.dataframe(results[list(simulator.stages.keys())].corr(), use_container_width=True)
 
         with st.expander("🧪 Detail Analisis Kontribusi Risiko"):
             st.dataframe(risk_contrib, use_container_width=True)
